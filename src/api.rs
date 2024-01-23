@@ -50,8 +50,11 @@ impl BenchmarkData {
         self.project_name = Some(project.as_ref().to_string());
     }
 
-    pub fn register_run(&mut self, run: Run, criteria: Criterion) {
+    pub fn push_run(&mut self, run: Run) {
         self.data.push(run);
+    }
+
+    pub fn push_criterion(&mut self, criteria: Criterion) {
         self.criteria.push(criteria);
     }
 
