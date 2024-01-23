@@ -6,7 +6,7 @@ fn main() {
     let env = Environment::generate_from_current_config();
     dbg!(&env);
 
-    let mut source = Source::from_repo(".").unwrap();
+    let source = Source::from_repo(".").unwrap();
     dbg!(&source);
 
     let mut benchmark = BenchmarkData::new(env, source, "Test 1", OffsetDateTime::now_utc());
