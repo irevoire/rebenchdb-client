@@ -1,3 +1,6 @@
+use std::path::Path;
+
+use git2::ErrorCode;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -253,6 +256,60 @@ impl Source {
             committer_email: committer.email().unwrap().to_string(),
         })
     }
+
+    /// Will clone your repo and dive into it to find your commit to fill all the required infos
+    /// Return an error if the repo url or the commit id doesn't exist.
+    /// Doesn't return an error if the branch doesn't exist or doesn't contains this commit.
+    pub fn from_remote_repo_with_rev(
+        repo_url: impl AsRef<str>,
+        branch_or_tag: impl AsRef<str>,
+        commit_id: impl AsRef<str>,
+        path: impl AsRef<Path>,
+    ) -> Result<(Self, OffsetDateTime), git2::Error> {
+        use git2::Repository;
+
+        let repo = match Repository::clone(repo_url.as_ref(), path.as_ref()) {
+            Ok(repo) => repo,
+            Err(e) if e.code() == ErrorCode::Exists => Repository::open(path.as_ref())?,
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        let commit = repo
+            .revparse_single(commit_id.as_ref())?
+            .into_commit()
+            .unwrap();
+
+        let author = commit.author();
+        let committer = commit.committer();
+
+        let time = OffsetDateTime::from_unix_timestamp(commit.time().seconds()).unwrap();
+
+        Ok((
+            Self {
+                repo_url: Some(repo_url.as_ref().to_string()),
+                branch_or_tag: branch_or_tag.as_ref().to_string(),
+                commit_id: commit_id.as_ref().to_string(),
+                commit_msg: String::from_utf8_lossy(commit.message_bytes()).to_string(),
+                author_name: author.name().unwrap().to_string(),
+                author_email: author.email().unwrap().to_string(),
+                committer_name: committer.name().unwrap().to_string(),
+                committer_email: committer.email().unwrap().to_string(),
+            },
+            time,
+        ))
+    }
+
+    pub fn from_remote_repo_with_rev_fresh_clone(
+        repo_url: impl AsRef<str>,
+        branch_or_tag: impl AsRef<str>,
+        commit_id: impl AsRef<str>,
+    ) -> Result<(Self, OffsetDateTime), git2::Error> {
+        let tempdir = tempfile::tempdir().unwrap();
+
+        Self::from_remote_repo_with_rev(repo_url, branch_or_tag, commit_id, tempdir.path())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -283,16 +340,17 @@ impl Environment {
         let unknown_string = String::from("Unknown");
         let mut system = System::new();
         system.refresh_cpu();
+        system.refresh_cpu_frequency();
         system.refresh_memory();
 
         let (cpu, frequency) = match system.cpus().first() {
             Some(cpu) => (
                 format!(
                     "{} @ {:.2}GHz",
-                    cpu.name(),
-                    cpu.frequency() as f64 / 1_000_000.0
+                    cpu.brand(),
+                    cpu.frequency() as f64 / 1000.0
                 ),
-                cpu.frequency(),
+                cpu.frequency() * 1_000_000,
             ),
             None => (unknown_string.clone(), 0),
         };
