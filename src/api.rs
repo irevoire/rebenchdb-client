@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+fn none<T>() -> Option<T> {
+    None
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BenchmarkData {
@@ -14,30 +18,33 @@ pub struct BenchmarkData {
 
     #[serde(with = "time::serde::rfc3339")]
     pub start_time: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(with = "time::serde::rfc3339::option", default = "none")]
     pub end_time: Option<OffsetDateTime>,
-    pub project: String,
+    pub project_name: Option<String>,
 }
 
 impl BenchmarkData {
     pub fn new(
         env: Environment,
         source: Source,
-        experiment_name: String,
+        experiment_name: impl AsRef<str>,
         start_time: time::OffsetDateTime,
-        project: String,
     ) -> Self {
         Self {
             data: Vec::new(),
             criteria: Vec::new(),
             env,
             source,
-            experiment_name,
+            experiment_name: experiment_name.as_ref().to_string(),
             experiment_description: None,
             start_time,
             end_time: None,
-            project,
+            project_name: None,
         }
+    }
+
+    pub fn with_project(&mut self, project: impl AsRef<str>) {
+        self.project_name = Some(project.as_ref().to_string());
     }
 
     pub fn register_run(&mut self, run: Run, criteria: Criterion) {
@@ -57,7 +64,11 @@ pub struct Run {
     #[serde(rename = "d")]
     pub points: Vec<DataPoint>,
     /// TODO: What is this?
-    #[serde(rename = "p")]
+    #[serde(
+        rename = "p",
+        skip_serializing_if = "Vec::is_empty",
+        default = "Vec::new"
+    )]
     pub profile: Vec<ProfileData>,
     /// The id of your run
     pub run_id: RunId,
@@ -72,7 +83,7 @@ impl Run {
         }
     }
 
-    pub fn add_point(&mut self, data_point: DataPoint) {
+    pub fn add_data(&mut self, data_point: DataPoint) {
         self.points.push(data_point)
     }
 }
@@ -123,13 +134,13 @@ pub struct Benchmark {
 #[serde(rename_all = "camelCase")]
 pub struct RunId {
     pub benchmark: Benchmark,
-    pub cmp_line: String,
+    pub cmdline: String,
 
     /// The current working directory.
     pub location: String,
 
     pub var_value: Option<String>,
-    pub var_cores: Option<String>,
+    pub cores: Option<usize>,
     pub input_size: Option<String>,
     pub extra_args: Option<String>,
 }
@@ -141,7 +152,7 @@ pub struct Measure {
     pub criterion_id: usize,
 
     #[serde(rename = "v")]
-    pub value: usize,
+    pub value: f64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -151,10 +162,24 @@ pub struct DataPoint {
     pub invocation: usize,
 
     #[serde(rename = "it")]
-    pub iterations: usize,
+    pub iteration: usize,
 
     #[serde(rename = "m")]
     pub measures: Vec<Measure>,
+}
+
+impl DataPoint {
+    pub fn new(invocation: usize, iteration: usize) -> Self {
+        Self {
+            invocation,
+            iteration,
+            measures: Vec::new(),
+        }
+    }
+
+    pub fn add_point(&mut self, measure: Measure) {
+        self.measures.push(measure);
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -192,7 +217,7 @@ pub struct ProfileData {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Source {
-    pub repo_url: String,
+    pub repo_url: Option<String>,
     pub branch_or_tag: String,
     pub commit_id: String,
     pub commit_msg: String,
@@ -218,7 +243,7 @@ impl Source {
         let committer = commit.committer();
 
         Ok(Self {
-            repo_url: remote.url().unwrap().to_string(),
+            repo_url: remote.url().map(|s| s.to_string()),
             branch_or_tag: head.name().unwrap().to_string(),
             commit_id: commit.id().to_string(),
             commit_msg: String::from_utf8_lossy(commit.message_bytes()).to_string(),
@@ -233,7 +258,7 @@ impl Source {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Environment {
-    pub hostname: String,
+    pub hostname: Option<String>,
     pub cpu: String,
 
     /// Advertised or nominal clock speed in Hertz.
@@ -299,7 +324,7 @@ impl Environment {
         }
 
         Self {
-            hostname: System::host_name().unwrap_or(unknown_string.clone()),
+            hostname: System::host_name(),
             cpu,
             clock_speed: frequency,
             memory: system.total_memory(),
