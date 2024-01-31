@@ -252,7 +252,11 @@ impl Source {
             repo_url: remote.url().map(|s| s.to_string()),
             branch_or_tag: head.name().unwrap().to_string(),
             commit_id: commit.id().to_string(),
-            commit_msg: String::from_utf8_lossy(commit.message_bytes()).to_string(),
+            commit_msg: String::from_utf8_lossy(commit.message_bytes())
+                .to_string()
+                .lines()
+                .next()
+                .map_or(String::new(), |s| s.to_string()),
             author_name: author.name().unwrap().to_string(),
             author_email: author.email().unwrap().to_string(),
             committer_name: committer.name().unwrap().to_string(),
